@@ -136,6 +136,30 @@
       <Project>{45109b18-99d7-474c-8013-a9eb65643bd2}</Project>
       <Name>WindowsAPICodePack</Name>
     </ProjectReference>
+    <ProjectReference Include="..\..\..\atom0s\Steamless\Steamless.API\Steamless.API.csproj">
+      <Project>{56c95629-3b34-47fe-b988-04274409294f}</Project>
+      <Name>Steamless.API</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\ArcSysLib\ArcSysLib\ArcSysLib.csproj">
+      <Project>{78146821-fbc1-43af-b515-be2822cbbcbb}</Project>
+      <Name>ArcSysLib</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\GCLILib\GCLILib\GCLILib.csproj">
+      <Project>{b27d5994-7531-4b23-a40f-9cdb6bbc045b}</Project>
+      <Name>GCLILib</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\GHLib\GHLib\GHLib.csproj">
+      <Project>{df9d041f-0974-4a6f-bc30-274e0f915d89}</Project>
+      <Name>GHLib</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\PaletteLib\PaletteLib\PaletteLib.csproj">
+      <Project>{3d9a7efd-6aa6-4560-bc2b-e403a6b55c47}</Project>
+      <Name>PaletteLib</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\VFSILib\VFSILib\VFSILib.csproj">
+      <Project>{74139b5e-9bf9-4b11-a11a-bb44a4384029}</Project>
+      <Name>VFSILib</Name>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
