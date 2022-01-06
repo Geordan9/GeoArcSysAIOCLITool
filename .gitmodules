@@ -1,0 +1,21 @@
+[submodule "ArcSysLib"]
+	path = ArcSysLib
+	url = https://github.com/Geordan9/ArcSysLib.git
+[submodule "GCLILib"]
+	path = GCLILib
+	url = https://github.com/Geordan9/GCLILib.git
+[submodule "GHLib"]
+	path = GHLib
+	url = https://github.com/Geordan9/GHLib.git
+[submodule "PaletteLib"]
+	path = PaletteLib
+	url = https://github.com/Geordan9/PaletteLib.git
+[submodule "VFSILib"]
+	path = VFSILib
+	url = https://github.com/Geordan9/VFSILib.git
+[submodule "ProcessLib"]
+	path = ProcessLib
+	url = https://github.com/Geordan9/ProcessLib.git
+[submodule "MemoryLib"]
+	path = MemoryLib
+	url = https://github.com/Geordan9/MemoryLib.git
