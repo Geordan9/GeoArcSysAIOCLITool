@@ -4,11 +4,15 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using ArcSysLib.Core.ArcSys;
+using ArcSysLib.Core.IO.File;
 using ArcSysLib.Core.IO.File.ArcSys;
 using ArcSysLib.Util;
 using GCLILib.Core;
 using GCLILib.Util;
+using GeoArcSysAIOCLITool.Util;
 using GeoArcSysAIOCLITool.Util.Extensions;
+using PaletteLib.Core.IO.Files;
+using PaletteLib.Core.IO.Files.Adobe;
 using VFSILib.Common.Enum;
 using VFSILib.Core.IO;
 using static GCLILib.Util.ConsoleTools;
@@ -160,6 +164,121 @@ public static class HIPTool
             LongOp = "--transparent",
             Description = "If decoding, will make the first color, in the image palette, transparent.",
             Flag = Options.Transparent
+        },
+        new()
+        {
+            Name = "Palette",
+            ShortOp = "-p",
+            LongOp = "--palette",
+            Description = "If output image has an indexed palette, will apply the specified palette to the image.",
+            HasArg = true,
+            Flag = Options.Palette,
+            Func = delegate(string[] subArgs)
+            {
+                var palettePath = string.Empty;
+
+                if (subArgs.Length == 0)
+                {
+                    subArgs = new string[1];
+                    subArgs[0] = OpenFileDialog("Select Palette File...");
+                }
+
+                foreach (var arg in subArgs)
+                {
+                    var subArg = Path.GetFullPath(arg.Replace("\"", "\\"));
+                    if (subArgs.Length > 1)
+                        WarningMessage(
+                            $"Too many arguments for palette file path. Defaulting to \"{subArg}\"...");
+
+                    palettePath = Path.GetFullPath(subArg);
+                    break;
+                }
+
+                if (string.IsNullOrWhiteSpace(palettePath))
+                {
+                    if (subArgs.Length > 1)
+                        WarningMessage(
+                            "None of the given file paths exist. Ignoring...");
+                    else if (subArgs.Length == 1)
+                        WarningMessage(
+                            "Given file path does not exist. Ignoring...");
+                    else if (subArgs.Length == 0)
+                        InfoMessage(
+                            "No file path was given. Ignoring...");
+                }
+                else
+                {
+                    if (!File.Exists(palettePath))
+                    {
+                        WarningMessage(
+                            "Given file path does not exist. Ignoring...");
+                        palettePath = string.Empty;
+                    }
+                    else
+                    {
+                        var ext = Path.GetExtension(palettePath);
+                        VirtualFileSystemInfo virtualFile = null;
+                        try
+                        {
+                            switch (ext)
+                            {
+                                case ".hpl":
+                                    Palette = new HPLFileInfo(palettePath).Palette;
+                                    break;
+                                case ".hip":
+                                    Palette = new HIPFileInfo(palettePath).Palette;
+                                    break;
+                                case ".act":
+                                    Palette = new ACTFileInfo(palettePath).Palette;
+                                    break;
+                                case ".aco":
+                                    Palette = new ACOFileInfo(palettePath).Colors;
+                                    break;
+                                case ".ase":
+                                    Palette = new ASEFileInfo(palettePath).Colors;
+                                    break;
+                                case ".pal":
+                                    virtualFile = new RIFFPALFileInfo(palettePath);
+                                    if (!((RIFFPALFileInfo) virtualFile).IsValidRIFFPAL)
+                                    {
+                                        virtualFile = new JSACPALFileInfo(palettePath);
+                                        if (!((JSACPALFileInfo) virtualFile).IsValidJSACPAL)
+                                            virtualFile = new VirtualFileSystemInfo(palettePath);
+                                    }
+
+                                    switch (virtualFile.GetType())
+                                    {
+                                        case Type riffpalType when riffpalType == typeof(RIFFPALFileInfo):
+                                            Palette = ((RIFFPALFileInfo) virtualFile).Palette;
+                                            break;
+                                        case Type jsacpalType when jsacpalType == typeof(JSACPALFileInfo):
+                                            Palette = ((JSACPALFileInfo) virtualFile).Palette;
+                                            break;
+                                    }
+
+                                    break;
+                                case ".dds":
+                                    Palette = new DDSFileInfo(palettePath).GetImage().Palette.Entries;
+                                    break;
+                                case string e when supportedImageExtensions.Contains(e):
+                                    using (var bmp = virtualFile == null
+                                               ? BitmapLoader.LoadBitmap(palettePath)
+                                               : BitmapLoader.LoadBitmap(virtualFile.GetBytes()))
+                                    {
+                                        Palette = bmp.Palette.Entries;
+                                    }
+
+                                    break;
+                            }
+                        }
+                        catch
+                        {
+                            WarningMessage("Retrieving palette failed. Ignoring...");
+                            Palette = null;
+                        }
+                    }
+                }
+            }
         }
     };
 
@@ -169,6 +288,10 @@ public static class HIPTool
     private static Tuple<int, int> Offsets = new(0, 0);
     private static Tuple<int, int> CanvasDimensions = new(0, 0);
     private static string ReferencedHIPPath = string.Empty;
+    private static Color[] Palette;
+
+    private static readonly string[] supportedImageExtensions =
+        ImageTools.NativeImageExtensions.Concat(new[] {".dds", ".hip"}).ToArray();
 
     [STAThread]
     public static void Main(string[] args)
@@ -234,48 +357,58 @@ public static class HIPTool
             var savePath = AdjustSavePathFromVFSI(vfsi,
                 string.IsNullOrWhiteSpace(OutputPath) ? Path.GetDirectoryName(path) : OutputPath);
             var saveDir = Path.GetDirectoryName(savePath);
-            HIPFileInfo hipFileInfo;
+            HIPFileInfo hipFileInfo = null;
+            if (vfsi is HIPFileInfo hipInfo)
+                hipFileInfo = hipInfo;
+
             if (ImageTools.NativeImageExtensions.Contains(ext) || ext == ".dds")
             {
                 fileName = Path.GetFileNameWithoutExtension(path) + ".hip";
                 savePath = Path.Combine(saveDir, fileName);
 
-                if (options.HasFlag(Options.ReferencedHIP))
+                using (var bmp = ImageTools.NativeImageExtensions.Contains(ext)
+                           ? BitmapLoader.LoadBitmap(vfsi.GetBytes())
+                           : (vfsi == vfsi.VirtualRoot ? new DDSFileInfo(path) : vfsi as DDSFileInfo).GetImage())
                 {
-                    if (string.IsNullOrWhiteSpace(ReferencedHIPPath) || ReferencedHIPPath == "auto")
-                        ReferencedHIPPath =
-                            Path.Combine(saveDir, Path.GetFileNameWithoutExtension(path) + ".hip");
-
-                    if (File.Exists(ReferencedHIPPath) || Directory.Exists(ReferencedHIPPath))
+                    if (options.HasFlag(Options.ReferencedHIP))
                     {
-                        var referencedHIPFilePath = ReferencedHIPPath;
-                        if (File.GetAttributes(ReferencedHIPPath).HasFlag(FileAttributes.Directory))
-                            referencedHIPFilePath = Path.Combine(ReferencedHIPPath,
-                                Path.GetFileNameWithoutExtension(path) + ".hip");
+                        if (string.IsNullOrWhiteSpace(ReferencedHIPPath) || ReferencedHIPPath == "auto")
+                            ReferencedHIPPath =
+                                Path.Combine(saveDir, Path.GetFileNameWithoutExtension(path) + ".hip");
 
-                        var referencedHIPFileInfo = new HIPFileInfo(referencedHIPFilePath);
-                        var referencedHIP = referencedHIPFileInfo.HIPFile;
-                        hipFileInfo = new HIPFileInfo(path, Encoding, ref referencedHIP,
-                            Endianness ?? ByteOrder.LittleEndian);
+                        if (File.Exists(ReferencedHIPPath) || Directory.Exists(ReferencedHIPPath))
+                        {
+                            var referencedHIPFilePath = ReferencedHIPPath;
+                            if (File.GetAttributes(ReferencedHIPPath).HasFlag(FileAttributes.Directory))
+                                referencedHIPFilePath = Path.Combine(ReferencedHIPPath,
+                                    Path.GetFileNameWithoutExtension(path) + ".hip");
+
+                            var referencedHIPFileInfo = new HIPFileInfo(referencedHIPFilePath);
+                            var referencedHIP = referencedHIPFileInfo.HIPFile;
+                            hipFileInfo = new HIPFileInfo(path, Encoding, ref referencedHIP, Palette,
+                                Endianness ?? ByteOrder.LittleEndian);
+                        }
+                        else
+                        {
+                            WarningMessage($"\"{ReferencedHIPPath}\" does not exist. Ignoring...");
+                            hipFileInfo = new HIPFileInfo(bmp, Encoding, Layered, Offsets.Item1, Offsets.Item2,
+                                CanvasDimensions.Item1, CanvasDimensions.Item2, Palette,
+                                Endianness ?? ByteOrder.LittleEndian);
+                        }
                     }
                     else
                     {
-                        WarningMessage($"\"{ReferencedHIPPath}\" does not exist. Ignoring...");
-                        hipFileInfo = new HIPFileInfo(path, Encoding, Layered, Offsets.Item1, Offsets.Item2,
-                            CanvasDimensions.Item1, CanvasDimensions.Item2, Endianness ?? ByteOrder.LittleEndian);
+                        hipFileInfo = new HIPFileInfo(bmp, Encoding, Layered, Offsets.Item1, Offsets.Item2,
+                            CanvasDimensions.Item1, CanvasDimensions.Item2, Palette,
+                            Endianness ?? ByteOrder.LittleEndian);
                     }
-                }
-                else
-                {
-                    hipFileInfo = new HIPFileInfo(path, Encoding, Layered, Offsets.Item1, Offsets.Item2,
-                        CanvasDimensions.Item1, CanvasDimensions.Item2, Endianness ?? ByteOrder.LittleEndian);
                 }
 
                 completed = WriteFile(savePath, hipFileInfo.GetBytes(), options);
             }
             else
             {
-                hipFileInfo = new HIPFileInfo(path);
+                hipFileInfo ??= new HIPFileInfo(path);
                 if (hipFileInfo.IsValidHIP)
                 {
                     fileName = Path.GetFileNameWithoutExtension(path) + ".png";
@@ -284,7 +417,7 @@ public static class HIPTool
                     completed = WriteFile(savePath,
                         delegate(string path)
                         {
-                            using var bitmap = hipFileInfo.GetImage(options.HasFlag(Options.KeepCanvas));
+                            using var bitmap = hipFileInfo.GetImage(options.HasFlag(Options.KeepCanvas), Palette);
                             if (options.HasFlag(Options.Transparent))
                             {
                                 var palette = bitmap.Palette;
@@ -325,6 +458,7 @@ public static class HIPTool
         CanvasDimensions = 0x8,
         ReferencedHIP = 0x10,
         KeepCanvas = 0x20,
-        Transparent = 0x40
+        Transparent = 0x40,
+        Palette = 0x80
     }
 }

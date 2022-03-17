@@ -7,11 +7,13 @@ using ArcSysLib.Common.Enum;
 using ArcSysLib.Core.ArcSys;
 using ArcSysLib.Core.IO.File.ArcSys;
 using ArcSysLib.Util;
+using ArcSysLib.Util.Extension;
 using GCLILib.Core;
 using GCLILib.Util;
+using GeoArcSysAIOCLITool.Properties;
 using GeoArcSysAIOCLITool.Util.Extensions;
 using VFSILib.Core.IO;
-using static ArcSysLib.Util.BBTAGMD5CryptTools;
+using static ArcSysLib.Util.ArcSysMD5CryptTools;
 using static GCLILib.Util.ConsoleTools;
 using static GeoArcSysAIOCLITool.AIO;
 using static GeoArcSysAIOCLITool.Util.ConsoleArgumentTools;
@@ -21,31 +23,6 @@ namespace GeoArcSysAIOCLITool.Core.CLI;
 
 public static class CryptTool
 {
-    [Flags]
-    public enum Games
-    {
-        BBCT = 0x1,
-        BBCSEX = 0x2,
-        BBCPEX = 0x4,
-        BBTAG = 0x8,
-        BBCF = 0x10,
-        AH3LMSSSX = 0x1
-    }
-
-    [Flags]
-    public enum Modes
-    {
-        Auto = 0x0,
-        Encrypt = 0x1,
-        Decrypt = 0x2,
-        MD5Encrypt = 0x4,
-        MD5Decrypt = 0x8,
-        ArcSysDeflate = 0x10,
-        ArcSysInflate = 0x20,
-        SwitchDeflate = 0x40,
-        SwitchInflate = 0x80
-    }
-
     public static ConsoleOption[] ConsoleOptions =
     {
         new()
@@ -102,6 +79,60 @@ public static class CryptTool
                     else if (subArgs.Length == 0)
                         InfoMessage(
                             "No game was given. Ignoring...");
+                }
+            }
+        },
+        new()
+        {
+            Name = "MD5CryptKey",
+            ShortOp = "-md5ck",
+            LongOp = "--md5cryptkey",
+            Description =
+                $"Sets the key used with the MD5 encryption mode. Allows preset keys or a custom one as a byte array or file. Presets: {{{string.Join("|", Enum.GetNames(typeof(MD5CryptKeyPresets)))}}}",
+            HasArg = true,
+            Flag = Options.MD5CryptKey,
+            Func = delegate(string[] subArgs)
+            {
+                if (subArgs.Length > 0)
+                {
+                    var fileOrPreset = false;
+                    foreach (var arg in subArgs)
+                        if (Enum.TryParse(arg, true, out MD5CryptKeyPresets md5CryptKeyPreset))
+                        {
+                            if (subArgs.Length > 1) InfoMessage($"Found multiple arguments. Defaulting to: \"{arg}\"");
+                            switch (md5CryptKeyPreset)
+                            {
+                                case MD5CryptKeyPresets.BBTAG:
+                                    EncryptionKey = Resources.ArcSysMD5Crypt_BBTAG;
+                                    break;
+                                case MD5CryptKeyPresets.P4U2:
+                                    EncryptionKey = Resources.ArcSysMD5Crypt_P4U2;
+                                    break;
+                            }
+
+                            fileOrPreset = true;
+                            break;
+                        }
+                        else if (File.Exists(Path.GetFullPath(arg)))
+                        {
+                            if (subArgs.Length > 1) InfoMessage($"Found multiple arguments. Defaulting to: \"{arg}\"");
+                            EncryptionKey = File.ReadAllBytes(Path.GetFullPath(arg));
+                            fileOrPreset = true;
+                            break;
+                        }
+
+                    if (!fileOrPreset)
+                    {
+                        var byteString = string.Join(string.Empty, subArgs);
+                        if (byteString.OnlyHex())
+                            EncryptionKey = byteString.BulkRemove(new[] {" ", ",", "0x"}).ToByteArray();
+                        else
+                            WarningMessage("No arguments were used. Skipping...");
+                    }
+                }
+                else
+                {
+                    EncryptionKey = Resources.ArcSysMD5Crypt_BBTAG;
                 }
             }
         },
@@ -179,7 +210,7 @@ public static class CryptTool
     private static string PathsFile = string.Empty;
     private static FilePaths[] PathsArray;
 
-    private static readonly string[] BBTAGObfuscatedFiles =
+    private static readonly string[] MD5ObfuscatedFiles =
         {string.Empty, ".pac", ".pacgz", ".hip", ".abc", ".txt", ".pat", ".ha6", ".fod"};
 
     [STAThread]
@@ -198,6 +229,13 @@ public static class CryptTool
             options = (Options) ((int) ProcessOptions<Options>(args, ConsoleOptions) |
                                  (int) ProcessOptions<AIO.FileOptions>(args, FileConsoleOptions) |
                                  (int) ProcessOptions<GlobalOptions>(args, GlobalConsoleOptions));
+
+            if (!options.HasFlag(Options.MD5CryptKey))
+            {
+                EncryptionKey = Resources.ArcSysMD5Crypt_BBTAG;
+
+                if (games.HasFlag(Games.P4U2)) EncryptionKey = Resources.ArcSysMD5Crypt_P4U2;
+            }
 
             var attr = new FileAttributes();
             try
@@ -323,7 +361,7 @@ public static class CryptTool
                 return;
             }
 
-            if (games.HasFlag(Games.BBTAG) && !BBTAGObfuscatedFiles.Contains(ext))
+            if (games.HasFlag(Games.BBTAG) && !MD5ObfuscatedFiles.Contains(ext))
             {
                 InfoMessage($"Specified game does not obfuscate {ext} files. Skipping...");
                 return;
@@ -436,7 +474,7 @@ public static class CryptTool
                     {
                         Console.ForegroundColor = ConsoleColor.Green;
                         Console.WriteLine($"MD5 Encrypting {fileName}...");
-                        var ms = BBTAGMD5CryptStream(memStream, filePath, CryptMode.Encrypt);
+                        var ms = ArcSysMD5CryptStream(memStream, filePath, CryptMode.Encrypt);
                         memStream.Close();
                         memStream.Dispose();
                         memStream = ms;
@@ -465,7 +503,7 @@ public static class CryptTool
                     memStream.Position = 0;
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"MD5 Decrypting {fileName}...");
-                    var ms = BBTAGMD5CryptStream(memStream, filePath, CryptMode.Decrypt);
+                    var ms = ArcSysMD5CryptStream(memStream, filePath, CryptMode.Decrypt);
                     memStream.Close();
                     memStream.Dispose();
                     memStream = ms;
@@ -483,7 +521,7 @@ public static class CryptTool
                                 }
                         }
 
-                        if (MD5Tools.IsMD5(fileName)) fileName = fileName + "_" + StringToByteArray(fileName)[7] % 43;
+                        if (MD5Tools.IsMD5(fileName)) fileName = fileName + "_" + fileName.ToByteArray()[7] % 43;
                     }
 
                     changed = true;
@@ -615,10 +653,45 @@ public static class CryptTool
     }
 
     [Flags]
+    private enum Games
+    {
+        BBCT = 0x1,
+        BBCSEX = 0x2,
+        BBCPEX = 0x4,
+        BBTAG = 0x8,
+        BBCF = 0x10,
+
+        // Other Games
+        P4U2 = 0x8,
+        AH3LMSSSX = 0x1
+    }
+
+    [Flags]
+    private enum Modes
+    {
+        Auto = 0x0,
+        Encrypt = 0x1,
+        Decrypt = 0x2,
+        MD5Encrypt = 0x4,
+        MD5Decrypt = 0x8,
+        ArcSysDeflate = 0x10,
+        ArcSysInflate = 0x20,
+        SwitchDeflate = 0x40,
+        SwitchInflate = 0x80
+    }
+
+    private enum MD5CryptKeyPresets
+    {
+        BBTAG = 0x0,
+        P4U2 = 0x1
+    }
+
+    [Flags]
     private enum Options
     {
         Mode = 0x1,
         Game = 0x2,
+        MD5CryptKey = 0x10,
         Paths = 0x100000
     }
 

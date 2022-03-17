@@ -14,4 +14,11 @@ public static class StringExtension
             _ => input.First().ToString().ToUpper() + input.Substring(1)
         };
     }
+
+    public static string BulkRemove(this string str, string[] removeArray)
+    {
+        var newString = str;
+        foreach (var rmv in removeArray) newString = newString.Replace(rmv, string.Empty);
+        return newString;
+    }
 }

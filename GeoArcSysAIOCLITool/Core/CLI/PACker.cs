@@ -22,32 +22,30 @@ public static class PACker
     {
         new()
         {
-            Name = "Minimum Name Length",
-            ShortOp = "-mnl",
-            LongOp = "--minnamelength",
-            Description =
-                "Specifies the minimum file name length. {Auto} will automatically calculate it.",
-            HasArg = true,
-            Flag = Options.MinNameLength,
-            Func = delegate(string[] subArgs)
-            {
-                int length;
-                if (subArgs.Length > 0 && subArgs[0].ToLower() == "auto")
-                    length = 0;
-                else if (subArgs.Length == 0 || !int.TryParse(subArgs[0], out length))
-                    length = 24;
-
-                MinNameLength = length;
-            }
-        },
-        new()
-        {
             Name = "Recursive",
             ShortOp = "-r",
             LongOp = "--recursive",
             Description =
                 "Specifies, if the tool is unpacking, to look through every folder, from the parent, recursively.",
             Flag = Options.Recursive
+        },
+        new()
+        {
+            Name = "FileHeaderEndPadding",
+            ShortOp = "-fhep",
+            LongOp = "--fileheaderendpadding",
+            Description =
+                "Adds padding at the end of the header and files. (Padding is 0x80 chunks)",
+            Flag = Options.FileHeaderEndPadding
+        },
+        new()
+        {
+            Name = "NoByteAlignment",
+            ShortOp = "-nba",
+            LongOp = "--nobytealignment",
+            Description =
+                "Prevent byte alignment between packed files.",
+            Flag = Options.NoByteAlignment
         },
         new()
         {
@@ -153,7 +151,6 @@ public static class PACker
     };
 
     private static Options options;
-    private static int MinNameLength;
     private static string FileOrderPath = string.Empty;
 
     [STAThread]
@@ -209,13 +206,17 @@ public static class PACker
                 var savePath = path + ".pac";
                 if (!string.IsNullOrWhiteSpace(OutputPath))
                     savePath = Path.Combine(OutputPath, Path.GetFileName(savePath));
-                var createExtNameID = options.HasFlag(Options.NameIDExt);
 
-                var createNameID = options.HasFlag(Options.NameID) ||
-                                   createExtNameID;
-                var pacParams =
-                    createExtNameID ? PAC.Parameters.GenerateExtendedNameID :
-                    createNameID ? PAC.Parameters.GenerateNameID : 0;
+                PAC.Parameters pacParams = new();
+
+                if(options.HasFlag(Options.FileHeaderEndPadding))
+                    pacParams |= PAC.Parameters.FileHeaderEndPadding;
+                if (options.HasFlag(Options.NoByteAlignment))
+                    pacParams |= PAC.Parameters.NoByteAlignment;
+                if (options.HasFlag(Options.NameID))
+                    pacParams |= PAC.Parameters.GenerateNameID;
+                if (options.HasFlag(Options.NameIDExt)) 
+                    pacParams |= PAC.Parameters.GenerateExtendedNameID;
 
                 Console.WriteLine(
                     $"Packing {Path.GetFileNameWithoutExtension(savePath)} in {Enum.GetName(typeof(ByteOrder), Endianness ?? ByteOrder.LittleEndian)}...");
@@ -223,7 +224,7 @@ public static class PACker
                 if (WriteFile(savePath, new PACFileInfo(path, pacParams,
                         !string.IsNullOrEmpty(FileOrderPath)
                             ? PACFileOrderTools.ReadFileOrder(FileOrderPath)
-                            : null, MinNameLength, Endianness ?? ByteOrder.LittleEndian).GetBytes(), options))
+                            : null, Endianness ?? ByteOrder.LittleEndian).GetBytes(), options))
                     Console.WriteLine("Successfully packed.");
             }
             else
@@ -262,7 +263,7 @@ public static class PACker
 
                     if (!isRecursive) saveFolder = Directory.GetParent(filePath).FullName;
 
-                    var mainPACFile = new PACFileInfo(filePath, MinNameLength) {Active = true};
+                    var mainPACFile = new PACFileInfo(filePath) {Active = true};
 
                     if (!mainPACFile.IsValidPAC)
                     {
@@ -332,11 +333,12 @@ public static class PACker
     [Flags]
     private enum Options
     {
-        MinNameLength = 0x1,
-        Recursive = 0x2,
-        NameID = 0x4,
-        NameIDExt = 0x8,
-        ExtractFileOrder = 0x10,
-        FileOrder = 0x20
+        Recursive = 0x1,
+        FileHeaderEndPadding = 0x10,
+        NoByteAlignment = 0x20,
+        NameID = 0x40,
+        NameIDExt = 0x80,
+        ExtractFileOrder = 0x10000,
+        FileOrder = 0x20000
     }
 }

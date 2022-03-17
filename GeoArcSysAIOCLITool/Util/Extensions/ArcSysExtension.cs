@@ -11,7 +11,7 @@ public static class ArcSysExtension
     {
         return vfsi.Obfuscation switch
         {
-            FileObfuscation.BBTAGEncryption or FileObfuscation.FPACEncryption => ConsoleColor.Green,
+            FileObfuscation.ArcSysMD5Encryption or FileObfuscation.FPACEncryption => ConsoleColor.Green,
             FileObfuscation.FPACDeflation or FileObfuscation.SwitchCompression => ConsoleColor.Cyan,
             FileObfuscation.FPACEncryption |
                 FileObfuscation.FPACDeflation => ConsoleColor.Magenta,
@@ -21,6 +21,8 @@ public static class ArcSysExtension
 
     public static ArcSysFileSystemInfo[] GetFilesRecursive(this PACFileInfo pfi)
     {
+        var wasActive = pfi.Active;
+        pfi.Active = true;
         var vfiles = new List<ArcSysFileSystemInfo>();
         vfiles.AddRange(pfi.GetFiles());
 
@@ -29,6 +31,8 @@ public static class ArcSysExtension
         for (var i = 0; i < len; i++)
             if (vfiles[i] is PACFileInfo pacFileInfo)
                 vfiles.AddRange(GetFilesRecursive(pacFileInfo));
+
+        pfi.Active = wasActive;
 
         return vfiles.ToArray();
     }
